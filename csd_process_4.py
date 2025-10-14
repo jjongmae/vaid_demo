@@ -2,11 +2,6 @@ from collections import defaultdict
 import cv2, numpy as np
 from ultralytics import YOLO
 
-# 점유율: 상행 점유
-# 검지량: 상행 통과
-# 객체 주행 방향: 상행 or 하행
-# 속도: ROI를 그리고 거리를 설정하여 계산
-
 def calculate_iou(box1, box2):
     """두 박스 간의 IoU(Intersection over Union) 계산"""
     x1, y1, x2, y2 = box1
@@ -37,7 +32,6 @@ def is_contained(box1, box2):
     x1, y1, x2, y2 = box1
     x1_2, y1_2, x2_2, y2_2 = box2
     return x1 >= x1_2 and y1 >= y1_2 and x2 <= x2_2 and y2 <= y2_2
-
 
 def nms_by_confidence(boxes_xyxy, tids, confs, clss, iou_threshold=0.5):
     """신뢰도 기반 NMS (Non-Maximum Suppression)"""
@@ -79,21 +73,20 @@ def nms_by_confidence(boxes_xyxy, tids, confs, clss, iou_threshold=0.5):
 
 # ── 설정 ────────────────────────────────────────────────
 model       = YOLO("rtdetr-l.pt")                       # 모델
-video_path  = f"input\CCTV002_20250711_092111236_1_1_정지차.mp4"
+video_path  = f"input\본선_정지차량_야간_맑음_공세육교_20250727034240_20250727184727.avi"
 cap         = cv2.VideoCapture(video_path)
 track_hist  = defaultdict(list)                        # {id: [(x, y), ...]}
-
 max_hist    = 30                                       # 궤적 길이
 # 사람, 자동차, 트럭, 버스 검지 (COCO dataset class IDs)
 target_classes = [0, 2, 5, 7]  # person, car, bus, truck
 vehicle_classes = [2, 5, 7]    # car, bus, truck
 
-# 차량 위치 히스토리 관리 (정지차 및 역주행 감지용)
+# 차량 위치 히스토리 관리
 vehicle_positions = defaultdict(list)  # {id: [(center_x, center_y, frame_idx), ...]}
 vehicle_wrong_way_history = defaultdict(list)  # {id: [True/False, ...]} 역주행 판단 히스토리
 stationary_threshold = 20  # 20픽셀 이내 움직임을 정지로 판단
 stationary_frame_count = 30  # 30프레임(약 1초) 이상 정지시 정지차로 판단
-min_box_size = 30  # 정지차 판단에 사용할 최소 박스 크기 (가로+세로 평균)
+min_box_size = 20  # 정지차 판단에 사용할 최소 박스 크기 (가로+세로 평균)
 
 # 역주행 감지 설정
 wrong_way_frame_count = 20  # 20프레임(약 0.67초) 이상 관찰하여 역주행 판단
@@ -151,21 +144,19 @@ while cap.isOpened():
                 # 바운딩 박스 하단 중심점 계산
                 center_x = (x1 + x2) / 2
                 center_y = y2
-
-                # 박스 크기 계산 (속도 추정 및 정지차 판단에 사용)
-                box_width = x2 - x1
-                box_height = y2 - y1
-                box_size = (box_width + box_height) / 2
-
-                # 차량 위치 히스토리 업데이트 (정지차 및 역주행 감지용)
+                
+                # 차량 위치 히스토리 업데이트
                 vehicle_positions[tid].append((center_x, center_y, frame_idx))
-
+                
                 # 오래된 히스토리 제거 (메모리 절약)
                 if len(vehicle_positions[tid]) > max_hist:
                     vehicle_positions[tid] = vehicle_positions[tid][-max_hist:]
-
+                
                 # 정지 차량 판단 (박스 크기 필터링 + 적응적 임계값)
                 is_stationary = False
+                box_width = x2 - x1
+                box_height = y2 - y1
+                box_size = (box_width + box_height) / 2
                 
                 # 박스가 충분히 큰 경우에만 정지차 판단 수행 (멀어지는 차량 제외)
                 if (len(vehicle_positions[tid]) >= stationary_frame_count and 
@@ -255,6 +246,8 @@ while cap.isOpened():
                     else:
                         is_wrong_way = False
 
+                is_wrong_way = False
+
                 # 색상 결정 (우선순위: 역주행 > 정지 > 일반)
                 if is_wrong_way:
                     box_color = wrong_way_color
@@ -272,15 +265,15 @@ while cap.isOpened():
                     thickness=2,
                     lineType=cv2.LINE_AA,
                 )
-
-                # 상태 텍스트 표시
+                
+                # ID 텍스트 표시 (역주행, 정지차 표시)
                 if is_wrong_way:
-                    text = "WRONG WAY"
+                    status_text = " (WRONG WAY)"
                 elif is_stationary:
-                    text = "STOP"
+                    status_text = " (STOP)"
                 else:
-                    text = f"ID:{tid}"
-
+                    status_text = ""
+                text = f"ID:{tid}{status_text}"
                 cv2.putText(
                     frame,
                     text,
@@ -288,27 +281,6 @@ while cap.isOpened():
                     cv2.FONT_HERSHEY_SIMPLEX,
                     0.6,
                     box_color,
-                    2,
-                    cv2.LINE_AA
-                )
-            elif cls == 0: # Person
-                # 사람일 경우 파란색으로 박스 표시
-                cv2.rectangle(
-                    frame,
-                    (int(x1), int(y1)),
-                    (int(x2), int(y2)),
-                    person_color,
-                    thickness=2,
-                    lineType=cv2.LINE_AA,
-                )
-                text = "Person"
-                cv2.putText(
-                    frame,
-                    text,
-                    (int(x1), int(y1) - 10),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.6,
-                    person_color,
                     2,
                     cv2.LINE_AA
                 )
