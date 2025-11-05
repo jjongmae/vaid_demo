@@ -315,11 +315,8 @@ while cap.isOpened():
             if is_parked:
                 box_color = parked_color
                 status_text = " (STOP)"
-            elif is_congestion:
-                box_color = congestion_color
-                status_text = " (TRAFFIC)"
             else:
-                # show_as_normal = True인 경우 포함
+                # 정체 차량과 일반 차량 모두 초록색으로 표시
                 box_color = moving_color
                 status_text = ""
 
