@@ -33,44 +33,6 @@ def is_contained(box1, box2):
     x1_2, y1_2, x2_2, y2_2 = box2
     return x1 >= x1_2 and y1 >= y1_2 and x2 <= x2_2 and y2 <= y2_2
 
-def count_nearby_slow_vehicles(tid, all_vehicle_positions, current_frame_idx, radius=150):
-    """주변 반경 내에서 느리게 움직이거나 정지한 차량 수를 카운트"""
-    if tid not in all_vehicle_positions or len(all_vehicle_positions[tid]) == 0:
-        return 0, 0  # (느린 차량 수, 정상 차량 수)
-
-    current_pos = all_vehicle_positions[tid][-1]
-    nearby_slow = 0
-    nearby_normal = 0
-
-    for other_tid, positions in all_vehicle_positions.items():
-        if other_tid == tid or len(positions) < 15:
-            continue
-
-        # 최근 프레임만 비교 (같은 시간대)
-        other_pos = positions[-1]
-        if abs(other_pos[2] - current_frame_idx) > 5:  # 프레임 차이가 크면 스킵
-            continue
-
-        # 거리 계산
-        distance = ((current_pos[0] - other_pos[0])**2 +
-                   (current_pos[1] - other_pos[1])**2)**0.5
-
-        if distance < radius:
-            # 최근 15프레임 동안의 이동거리 확인
-            if len(positions) >= 15:
-                recent_positions = positions[-15:]
-                first_pos = recent_positions[0]
-                last_pos = recent_positions[-1]
-                movement = ((last_pos[0] - first_pos[0])**2 +
-                           (last_pos[1] - first_pos[1])**2)**0.5
-
-                if movement < 20:  # 20픽셀 이하 = 느린 움직임/정지
-                    nearby_slow += 1
-                elif movement > 40:  # 40픽셀 이상 = 정상 주행
-                    nearby_normal += 1
-
-    return nearby_slow, nearby_normal
-
 def analyze_movement_pattern(positions, window=90):
     """움직임 패턴 분석 - 정체는 간헐적 전진, 정지는 완전 고정"""
     if len(positions) < 20:  # 최소 20프레임은 필요
@@ -183,7 +145,7 @@ vehicle_stopped_frames = defaultdict(int)  # {id: 연속 정지 프레임 수}
 
 # 정지 감지 설정 (새로운 패러다임)
 QUICK_STOP_FRAMES = 30     # 30프레임(약 1초) - 빠른 정지 상태 판단
-CONFIRMED_STOP_FRAMES = 150  # 150프레임(약 5초) - 확실한 정지차로 판단
+CONFIRMED_STOP_FRAMES = 30  # 150프레임(약 5초) - 확실한 정지차로 판단
 MIN_BOX_SIZE = 50          # 정지차 판단에 사용할 최소 박스 크기 (가로+세로 평균)
 STOP_THRESHOLD_MIN = 12    # 정지 판단 최소 임계값 (픽셀)
 STOP_THRESHOLD_RATIO = 0.06  # 박스 크기 대비 정지 임계값 비율
@@ -288,28 +250,17 @@ while cap.isOpened():
                 else:
                     vehicle_stopped_frames[tid] = 0  # 관찰 시간 부족하면 리셋
 
-        # 2단계: 프레임 단위 정체 판단 (정지 차량이 2대 이상이면 모두 정체)
-        num_stopped = len(stopped_vehicles)
-
-        # 3단계: 각 정지 차량에 대해 STOP vs TRAFFIC 판단 및 그리기
+        # 2단계: 각 정지 차량에 대해 정지차 판단 및 그리기
         for tid, x1, y1, x2, y2, cls in stopped_vehicles:
             is_parked = False
-            is_congestion = False
             show_as_normal = False  # 초록색(일반)으로 표시
 
-            # 패러다임: 정지 차량이 2대 이상이면 무조건 정체
-            if num_stopped >= 2:
-                is_congestion = True
-                # 정체 상황에서는 정지차 확정 카운터 초기화
-                vehicle_stopped_frames[tid] = 0
-            # 1대만 정지 상태인 경우
+            # 5초(150프레임) 이상 지속 정지 = 정지차
+            if vehicle_stopped_frames[tid] >= CONFIRMED_STOP_FRAMES:
+                is_parked = True
             else:
-                # 5초(150프레임) 이상 지속 정지 = 정지차
-                if vehicle_stopped_frames[tid] >= CONFIRMED_STOP_FRAMES:
-                    is_parked = True
-                else:
-                    # 5초 미만 = 일반 차량처럼 초록색으로 표시
-                    show_as_normal = True
+                # 5초 미만 = 일반 차량처럼 초록색으로 표시
+                show_as_normal = True
 
             # 색상 결정
             if is_parked:
