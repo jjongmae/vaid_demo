@@ -60,7 +60,7 @@ pyinstaller --clean ^
     --noconfirm ^
     video_analysis_gui.py
 
-if %ERRORLEVEL% EQU 0 (
+if exist "dist\영상분석프로그램.exe" (
     echo.
     echo [4/4] 빌드 완료!
     echo.

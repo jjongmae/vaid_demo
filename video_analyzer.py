@@ -128,7 +128,7 @@ class VideoAnalyzer:
         }
 
         # 추적 히스토리
-        self.max_hist = 60
+        self.max_hist = 300
         self.reset_tracking()
 
     def reset_tracking(self):
