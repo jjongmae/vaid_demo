@@ -114,6 +114,7 @@ class VideoAnalyzer:
         self.moving_color = (0, 255, 0)       # 움직이는 차량: 초록색
         self.parked_color = (0, 0, 255)       # 정지 차량: 빨간색
         self.person_color = (255, 0, 0)       # 사람: 파란색
+        self.wrong_way_color = (255, 0, 255)  # 역주행 차량: 보라색
 
         # 기본 파라미터
         self.params = {
@@ -124,7 +125,11 @@ class VideoAnalyzer:
             'conf_threshold': 0.5,        # 신뢰도 임계값
             'iou_threshold': 0.5,         # NMS IoU 임계값
             'track_iou': 0.8,             # 트래킹 IoU
-            'detect_conf': 0.15           # 검출 신뢰도
+            'detect_conf': 0.15,          # 검출 신뢰도
+            # 역주행 감지 파라미터
+            'use_wrong_way_detection': False,
+            'wrong_way_frames': 15,
+            'direction_vectors': []
         }
 
         # 추적 히스토리
@@ -135,11 +140,15 @@ class VideoAnalyzer:
         """추적 히스토리 초기화"""
         self.vehicle_positions = defaultdict(list)
         self.vehicle_stopped_frames = defaultdict(int)
+        self.vehicle_wrong_way_frames = defaultdict(int)
 
     def update_params(self, **kwargs):
         """파라미터 업데이트"""
         for key, value in kwargs.items():
-            if key in self.params:
+            # direction_vectors는 GUI의 리스트를 직접 참조하도록 설정
+            if key == 'direction_vectors':
+                self.params['direction_vectors'] = value
+            elif key in self.params:
                 self.params[key] = value
 
     def analyze_video(self, video_path, output_path, progress_callback=None):
@@ -248,11 +257,18 @@ class VideoAnalyzer:
             boxes_xyxy, tids, clss, frame_idx
         )
 
+        # 역주행 차량 검출
+        wrong_way_vehicles = []
+        if self.params['use_wrong_way_detection']:
+            wrong_way_vehicles = self._detect_wrong_way_vehicles(
+                boxes_xyxy, tids, clss, frame_idx
+            )
+
         # 정지 차량 그리기
         self._draw_stopped_vehicles(frame, stopped_vehicles)
 
-        # 일반 차량 및 사람 그리기
-        self._draw_moving_objects(frame, boxes_xyxy, tids, clss, stopped_vehicles)
+        # 일반 차량, 사람, 역주행 차량 그리기
+        self._draw_moving_objects(frame, boxes_xyxy, tids, clss, stopped_vehicles, wrong_way_vehicles)
 
         return frame
 
@@ -269,7 +285,9 @@ class VideoAnalyzer:
             center_y = y2
 
             # 위치 히스토리 업데이트
-            self.vehicle_positions[tid].append((center_x, center_y, frame_idx))
+            if not self.vehicle_positions[tid] or self.vehicle_positions[tid][-1][2] != frame_idx:
+                 self.vehicle_positions[tid].append((center_x, center_y, frame_idx))
+
             if len(self.vehicle_positions[tid]) > self.max_hist:
                 self.vehicle_positions[tid] = self.vehicle_positions[tid][-self.max_hist:]
 
@@ -308,6 +326,66 @@ class VideoAnalyzer:
 
         return stopped_vehicles
 
+    def _detect_wrong_way_vehicles(self, boxes_xyxy, tids, clss, frame_idx):
+        """역주행 차량 검출"""
+        wrong_way_vehicles = []
+        if not self.params['direction_vectors']:
+            return wrong_way_vehicles
+
+        # 방향 벡터 정규화
+        ref_vectors = []
+        for v in self.params['direction_vectors']:
+            vec = np.array([v[2] - v[0], v[3] - v[1]], dtype=np.float32)
+            norm = np.linalg.norm(vec)
+            if norm > 0:
+                ref_vectors.append(vec / norm)
+
+        if not ref_vectors:
+            return wrong_way_vehicles
+
+        for (x1, y1, x2, y2), tid, cls in zip(boxes_xyxy, tids, clss):
+            if cls not in self.vehicle_classes:
+                continue
+
+            # 이동 벡터 계산을 위한 충분한 데이터 확인
+            history = self.vehicle_positions[tid]
+            if len(history) < self.params['wrong_way_frames']:
+                self.vehicle_wrong_way_frames[tid] = 0
+                continue
+
+            # 차량 이동 벡터 계산
+            start_pos = np.array(history[-self.params['wrong_way_frames']][:2])
+            end_pos = np.array(history[-1][:2])
+            move_vec = end_pos - start_pos
+            move_dist = np.linalg.norm(move_vec)
+
+            # 최소 이동 거리 체크
+            if move_dist < 10:
+                self.vehicle_wrong_way_frames[tid] = 0
+                continue
+
+            move_vec_norm = move_vec / move_dist
+
+            # 각 기준 벡터와 코사인 유사도 계산
+            is_wrong_way = False
+            for ref_vec in ref_vectors:
+                cosine_similarity = np.dot(move_vec_norm, ref_vec)
+                if cosine_similarity < -0.5:  # 120도 이상 차이날 때
+                    is_wrong_way = True
+                    break
+
+            if is_wrong_way:
+                self.vehicle_wrong_way_frames[tid] += 1
+            else:
+                self.vehicle_wrong_way_frames[tid] = 0
+
+            # 일정 프레임 이상 역주행 시 최종 판단
+            if self.vehicle_wrong_way_frames[tid] >= self.params['wrong_way_frames']:
+                wrong_way_vehicles.append((tid, x1, y1, x2, y2, cls))
+
+        return wrong_way_vehicles
+
+
     def _draw_stopped_vehicles(self, frame, stopped_vehicles):
         """정지 차량 그리기"""
         for tid, x1, y1, x2, y2, cls in stopped_vehicles:
@@ -338,17 +416,21 @@ class VideoAnalyzer:
                 cv2.LINE_AA
             )
 
-    def _draw_moving_objects(self, frame, boxes_xyxy, tids, clss, stopped_vehicles):
-        """일반 차량 및 사람 그리기"""
+    def _draw_moving_objects(self, frame, boxes_xyxy, tids, clss, stopped_vehicles, wrong_way_vehicles):
+        """일반 차량, 사람, 역주행 차량 그리기"""
         stopped_vehicle_ids = {tid for tid, _, _, _, _, _ in stopped_vehicles}
+        wrong_way_vehicle_ids = {tid for tid, _, _, _, _, _ in wrong_way_vehicles}
 
         for (x1, y1, x2, y2), tid, cls in zip(boxes_xyxy, tids, clss):
-            # 이미 정지 차량으로 처리했으면 스킵
+            # 이미 처리된 차량은 스킵
             if tid in stopped_vehicle_ids:
                 continue
 
-            # 색상 결정
-            if cls == self.person_class:
+            # 색상 및 텍스트 결정
+            if tid in wrong_way_vehicle_ids:
+                box_color = self.wrong_way_color
+                status_text = " (WRONG WAY)"
+            elif cls == self.person_class:
                 box_color = self.person_color
                 status_text = " (PERSON)"
             else:
