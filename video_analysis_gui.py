@@ -58,7 +58,9 @@ class VideoAnalysisApp(QMainWindow):
         super().__init__()
         self.analyzer = VideoAnalyzer()
         self.analysis_thread = None
-        self.video_path = None
+        self.video_path = None  # 단일 영상 선택 시 사용
+        self.video_paths = []   # 분석할 영상 목록
+        self.current_video_index = 0
 
         self.init_ui()
 
@@ -96,13 +98,13 @@ class VideoAnalysisApp(QMainWindow):
         main_layout.addWidget(log_group)
 
     def create_video_selection_group(self):
-        """영상 선택 그룹 생성"""
-        group = QGroupBox("영상 선택")
+        """영상 또는 폴더 선택 그룹 생성"""
+        group = QGroupBox("영상/폴더 선택")
         layout = QVBoxLayout()
 
-        # 영상 경로 표시
+        # 경로 표시
         path_layout = QHBoxLayout()
-        self.video_path_label = QLabel("영상을 선택해주세요")
+        self.video_path_label = QLabel("영상을 선택하거나 폴더를 선택해주세요")
         self.video_path_label.setStyleSheet("padding: 5px; background-color: #f0f0f0;")
         path_layout.addWidget(self.video_path_label)
         layout.addLayout(path_layout)
@@ -113,6 +115,10 @@ class VideoAnalysisApp(QMainWindow):
         self.select_btn = QPushButton("영상 선택")
         self.select_btn.clicked.connect(self.select_video)
         button_layout.addWidget(self.select_btn)
+
+        self.select_folder_btn = QPushButton("폴더 선택")
+        self.select_folder_btn.clicked.connect(self.select_folder)
+        button_layout.addWidget(self.select_folder_btn)
 
         self.analyze_btn = QPushButton("분석 시작")
         self.analyze_btn.clicked.connect(self.start_analysis)
@@ -236,9 +242,35 @@ class VideoAnalysisApp(QMainWindow):
 
         if file_path:
             self.video_path = file_path
+            self.video_paths = [file_path]  # 분석 목록을 단일 파일로 설정
             self.video_path_label.setText(os.path.basename(file_path))
             self.analyze_btn.setEnabled(True)
             self.add_log(f"영상 선택됨: {os.path.basename(file_path)}")
+
+    def select_folder(self):
+        """영상 폴더 선택하여 분석 목록에 추가"""
+        dir_path = QFileDialog.getExistingDirectory(
+            self,
+            "영상 폴더 선택",
+            os.getcwd()
+        )
+
+        if dir_path:
+            self.video_paths = []
+            valid_extensions = ('.mp4', '.avi', '.mov', '.mkv')
+            for filename in sorted(os.listdir(dir_path)): # 파일 이름 순으로 정렬
+                if filename.lower().endswith(valid_extensions):
+                    self.video_paths.append(os.path.join(dir_path, filename))
+
+            if self.video_paths:
+                self.video_path = None  # 단일 영상 선택 해제
+                self.video_path_label.setText(f"폴더: {os.path.basename(dir_path)} ({len(self.video_paths)}개 영상)")
+                self.analyze_btn.setEnabled(True)
+                self.add_log(f"폴더에서 {len(self.video_paths)}개의 영상을 분석 목록에 추가했습니다.")
+            else:
+                QMessageBox.warning(self, "경고", "선택한 폴더에 분석할 영상 파일이 없습니다.")
+                self.video_path_label.setText("영상을 선택하거나 폴더를 선택해주세요.")
+                self.analyze_btn.setEnabled(False)
 
     def apply_settings(self):
         """설정 적용"""
@@ -253,30 +285,48 @@ class VideoAnalysisApp(QMainWindow):
         self.add_log("설정이 적용되었습니다.")
 
     def start_analysis(self):
-        """분석 시작"""
-        if not self.video_path:
-            QMessageBox.warning(self, "경고", "영상을 먼저 선택해주세요.")
+        """분석 시작 (목록에 있는 모든 영상)"""
+        if not self.video_paths:
+            QMessageBox.warning(self, "경고", "영상을 먼저 선택하거나 폴더를 선택해주세요.")
             return
 
         # 설정 자동 적용
         self.apply_settings()
 
-        # 출력 경로 생성 (프로그램 실행 디렉토리 기준)
-        video_name = os.path.splitext(os.path.basename(self.video_path))[0]
+        self.current_video_index = 0
+        self.analyze_btn.setEnabled(False)
+        self.select_btn.setEnabled(False)
+        self.select_folder_btn.setEnabled(False)
+
+        self.start_next_analysis()
+
+    def start_next_analysis(self):
+        """목록의 다음 영상 분석을 시작"""
+        if self.current_video_index >= len(self.video_paths):
+            # 모든 분석이 완료된 경우
+            self.reset_ui_after_analysis(all_successful=True)
+            QMessageBox.information(self, "완료", "모든 영상 분석이 완료되었습니다!")
+            return
+
+        video_path = self.video_paths[self.current_video_index]
+
+        # 출력 경로 생성
+        video_name = os.path.splitext(os.path.basename(video_path))[0]
         output_dir = os.path.join(os.getcwd(), "result")
         os.makedirs(output_dir, exist_ok=True)
         output_path = os.path.join(output_dir, f"{video_name}_analyzed.mp4")
 
         # UI 업데이트
-        self.analyze_btn.setEnabled(False)
-        self.select_btn.setEnabled(False)
         self.progress_bar.setValue(0)
-        self.progress_label.setText("분석 중...")
+        total_videos = len(self.video_paths)
+        progress_text = f"분석 준비 중 ({self.current_video_index + 1}/{total_videos}): {os.path.basename(video_path)}"
+        self.progress_label.setText(progress_text)
+        self.add_log(progress_text)
 
         # 분석 스레드 시작
-        self.analysis_thread = AnalysisThread(self.analyzer, self.video_path, output_path)
+        self.analysis_thread = AnalysisThread(self.analyzer, video_path, output_path)
         self.analysis_thread.progress.connect(self.update_progress)
-        self.analysis_thread.finished.connect(self.analysis_finished)
+        self.analysis_thread.finished.connect(self.one_analysis_finished)
         self.analysis_thread.log.connect(self.add_log)
         self.analysis_thread.start()
 
@@ -285,20 +335,44 @@ class VideoAnalysisApp(QMainWindow):
         if total > 0:
             percentage = int((current / total) * 100)
             self.progress_bar.setValue(percentage)
-            self.progress_label.setText(f"처리 중: {current}/{total} 프레임 ({percentage}%)")
 
-    def analysis_finished(self, success, message):
-        """분석 완료"""
+            total_videos = len(self.video_paths)
+            if not self.video_paths: # 분석이 끝난 직후 video_paths가 비워지는 경우 방지
+                return
+                
+            video_name = os.path.basename(self.video_paths[self.current_video_index])
+
+            if total_videos > 1:
+                progress_text = f"처리 중 ({self.current_video_index + 1}/{total_videos}: {video_name}): {current}/{total} 프레임 ({percentage}%)"
+            else:
+                progress_text = f"처리 중: {current}/{total} 프레임 ({percentage}%)"
+            self.progress_label.setText(progress_text)
+
+    def one_analysis_finished(self, success, message):
+        """단일 영상 분석 완료 시 호출"""
+        if success:
+            self.add_log(f"분석 완료: {os.path.basename(self.video_paths[self.current_video_index])}")
+            self.current_video_index += 1
+            self.start_next_analysis()  # 다음 영상 분석 시작
+        else:
+            self.add_log(f"분석 실패: {os.path.basename(self.video_paths[self.current_video_index])}. 원인: {message}")
+            self.reset_ui_after_analysis(all_successful=False)
+            QMessageBox.critical(self, "오류", f"분석 중 오류가 발생하여 중단합니다:\n{message}")
+
+    def reset_ui_after_analysis(self, all_successful):
+        """분석 세션 종료 후 UI 초기화"""
+        if all_successful:
+            self.progress_label.setText("모든 분석 완료!")
+            self.progress_bar.setValue(100)
+        else:
+            self.progress_label.setText("분석 중단됨")
+            self.progress_bar.setValue(0)
+
         self.analyze_btn.setEnabled(True)
         self.select_btn.setEnabled(True)
-
-        if success:
-            self.progress_bar.setValue(100)
-            self.progress_label.setText("완료!")
-            QMessageBox.information(self, "완료", message)
-        else:
-            self.progress_label.setText("실패")
-            QMessageBox.critical(self, "오류", message)
+        self.select_folder_btn.setEnabled(True)
+        self.video_paths = []
+        self.current_video_index = 0
 
     def add_log(self, message):
         """로그 추가"""
