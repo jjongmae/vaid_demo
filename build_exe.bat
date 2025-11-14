@@ -60,28 +60,22 @@ pyinstaller --clean ^
     --noconfirm ^
     video_analysis_gui.py
 
-if exist "dist\영상분석프로그램.exe" (
-    echo.
-    echo [4/4] 빌드 완료!
-    echo.
-    echo ====================================
-    echo EXE 파일 위치: dist\영상분석프로그램.exe
-    echo ====================================
-    echo.
-    echo 사용 방법:
-    echo 1. dist 폴더의 영상분석프로그램.exe를 복사
-    echo 2. 다른 PC에 붙여넣기
-    echo 3. 더블클릭으로 실행
-    echo.
-    echo 참고사항:
-    echo - Python 설치 불필요
-    echo - 모델 파일 포함됨
-    echo - CPU 모드로 동작 (모든 PC에서 실행 가능)
-    echo.
-) else (
-    echo.
-    echo [오류] 빌드 실패!
-    echo 위의 오류 메시지를 확인해주세요.
-)
+echo.
+echo [4/4] 빌드 완료!
+echo.
+echo ====================================
+echo EXE 파일 위치: dist\영상분석프로그램.exe
+echo ====================================
+echo.
+echo 사용 방법:
+echo 1. dist 폴더의 영상분석프로그램.exe를 복사
+echo 2. 다른 PC에 붙여넣기
+echo 3. 더블클릭으로 실행
+echo.
+echo 참고사항:
+echo - Python 설치 불필요
+echo - 모델 파일 포함됨
+echo - CPU 모드로 동작 (모든 PC에서 실행 가능)
+echo.
 
 pause

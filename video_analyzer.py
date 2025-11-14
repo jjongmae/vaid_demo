@@ -129,7 +129,8 @@ class VideoAnalyzer:
             # 역주행 감지 파라미터
             'use_wrong_way_detection': False,
             'wrong_way_frames': 15,
-            'direction_vectors': []
+            'direction_vectors': [],
+            'move_avg_window': 5  # 이동 평균을 계산할 벡터 수
         }
 
         # 추적 히스토리
@@ -141,6 +142,7 @@ class VideoAnalyzer:
         self.vehicle_positions = defaultdict(list)
         self.vehicle_stopped_frames = defaultdict(int)
         self.vehicle_wrong_way_frames = defaultdict(int)
+        self.vehicle_move_vectors = defaultdict(list)  # 이동 벡터 저장을 위해 추가
 
     def update_params(self, **kwargs):
         """파라미터 업데이트"""
@@ -327,12 +329,12 @@ class VideoAnalyzer:
         return stopped_vehicles
 
     def _detect_wrong_way_vehicles(self, boxes_xyxy, tids, clss, frame_idx):
-        """역주행 차량 검출"""
+        """역주행 차량 검출 (이동 평균 방식)"""
         wrong_way_vehicles = []
         if not self.params['direction_vectors']:
             return wrong_way_vehicles
 
-        # 방향 벡터 정규화
+        # 기준 방향 벡터 정규화
         ref_vectors = []
         for v in self.params['direction_vectors']:
             vec = np.array([v[2] - v[0], v[3] - v[1]], dtype=np.float32)
@@ -347,29 +349,45 @@ class VideoAnalyzer:
             if cls not in self.vehicle_classes:
                 continue
 
-            # 이동 벡터 계산을 위한 충분한 데이터 확인
             history = self.vehicle_positions[tid]
-            if len(history) < self.params['wrong_way_frames']:
+            # 최소 2개의 위치 기록이 있어야 이동 벡터 계산 가능
+            if len(history) < 2:
+                continue
+
+            # 최신 프레임 간 이동 벡터 계산
+            pos_now = np.array(history[-1][:2])
+            pos_prev = np.array(history[-2][:2])
+            
+            # 같은 프레임에 대한 중복 계산 방지
+            if history[-1][2] != frame_idx:
+                continue
+
+            move_vec = pos_now - pos_prev
+            
+            # 이동 벡터 리스트에 추가 및 개수 제한
+            self.vehicle_move_vectors[tid].append(move_vec)
+            window_size = self.params['move_avg_window']
+            if len(self.vehicle_move_vectors[tid]) > window_size:
+                self.vehicle_move_vectors[tid] = self.vehicle_move_vectors[tid][-window_size:]
+
+            # 이동 평균 벡터 계산
+            if not self.vehicle_move_vectors[tid]:
+                continue
+            
+            avg_move_vec = np.mean(self.vehicle_move_vectors[tid], axis=0)
+            avg_move_dist = np.linalg.norm(avg_move_vec)
+
+            # 최소 이동 거리 체크 (평균 벡터 기준)
+            if avg_move_dist < 1.0:  # 노이즈 제거를 위한 최소 이동 거리
                 self.vehicle_wrong_way_frames[tid] = 0
                 continue
 
-            # 차량 이동 벡터 계산
-            start_pos = np.array(history[-self.params['wrong_way_frames']][:2])
-            end_pos = np.array(history[-1][:2])
-            move_vec = end_pos - start_pos
-            move_dist = np.linalg.norm(move_vec)
-
-            # 최소 이동 거리 체크
-            if move_dist < 10:
-                self.vehicle_wrong_way_frames[tid] = 0
-                continue
-
-            move_vec_norm = move_vec / move_dist
+            avg_move_vec_norm = avg_move_vec / avg_move_dist
 
             # 각 기준 벡터와 코사인 유사도 계산
             is_wrong_way = False
             for ref_vec in ref_vectors:
-                cosine_similarity = np.dot(move_vec_norm, ref_vec)
+                cosine_similarity = np.dot(avg_move_vec_norm, ref_vec)
                 if cosine_similarity < -0.5:  # 120도 이상 차이날 때
                     is_wrong_way = True
                     break
@@ -377,6 +395,7 @@ class VideoAnalyzer:
             if is_wrong_way:
                 self.vehicle_wrong_way_frames[tid] += 1
             else:
+                # 유예 카운트 적용 (선택적) - 여기서는 단순 초기화
                 self.vehicle_wrong_way_frames[tid] = 0
 
             # 일정 프레임 이상 역주행 시 최종 판단

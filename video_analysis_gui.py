@@ -236,6 +236,7 @@ class VideoAnalysisApp(QMainWindow):
         self.video_paths = []   # 분석할 영상 목록
         self.current_video_index = 0
         self.direction_vectors = []  # 역주행 감지를 위한 진행 방향 벡터 목록
+        self.output_result_dir = None # 분석 결과 폴더 경로
 
         self.init_ui()
 
@@ -388,8 +389,18 @@ class VideoAnalysisApp(QMainWindow):
         self.wrong_way_frames_spin.setToolTip("역주행으로 최종 판단하기까지 필요한 최소 프레임 수. 높을수록 오검지가 줄어듭니다.")
         layout.addWidget(self.wrong_way_frames_spin, row, 1)
 
+        row += 1
+        layout.addWidget(QLabel("이동 평균 프레임:"), row, 0)
+        self.move_avg_window_spin = QSpinBox()
+        self.move_avg_window_spin.setRange(3, 20)
+        self.move_avg_window_spin.setValue(5)
+        self.move_avg_window_spin.setSuffix(" 프레임")
+        self.move_avg_window_spin.setToolTip("방향 계산을 부드럽게 하기 위해 사용할 프레임 수. 클수록 안정적이지만 반응이 느려집니다.")
+        layout.addWidget(self.move_avg_window_spin, row, 1)
+
         # 초기에는 비활성화
         self.wrong_way_frames_spin.setEnabled(False)
+        self.move_avg_window_spin.setEnabled(False)
         self.set_direction_btn.setEnabled(False)
 
         group.setLayout(layout)
@@ -398,6 +409,7 @@ class VideoAnalysisApp(QMainWindow):
     def toggle_wrong_way_settings(self, checked):
         """역주행 관련 설정 활성화/비활성화"""
         self.wrong_way_frames_spin.setEnabled(checked)
+        self.move_avg_window_spin.setEnabled(checked)
         self.set_direction_btn.setEnabled(checked)
         if checked:
             self.add_log("역주행 감지 기능이 활성화되었습니다. '진행 방향 설정'을 해주세요.")
@@ -515,6 +527,7 @@ class VideoAnalysisApp(QMainWindow):
             # 역주행 감지 관련 파라미터 추가
             use_wrong_way_detection=self.wrong_way_checkbox.isChecked(),
             wrong_way_frames=self.wrong_way_frames_spin.value(),
+            move_avg_window=self.move_avg_window_spin.value(),
             direction_vectors=self.direction_vectors
         )
         self.add_log("설정이 적용되었습니다.")
@@ -550,6 +563,7 @@ class VideoAnalysisApp(QMainWindow):
         output_dir = os.path.join(os.getcwd(), "result")
         os.makedirs(output_dir, exist_ok=True)
         output_path = os.path.join(output_dir, f"{video_name}_analyzed.mp4")
+        self.output_result_dir = output_dir # 결과 폴더 경로 저장
 
         # UI 업데이트
         self.progress_bar.setValue(0)
@@ -599,6 +613,13 @@ class VideoAnalysisApp(QMainWindow):
         if all_successful:
             self.progress_label.setText("모든 분석 완료!")
             self.progress_bar.setValue(100)
+            # 분석 완료 후 결과 폴더 열기
+            if self.output_result_dir and os.path.exists(self.output_result_dir):
+                try:
+                    os.startfile(self.output_result_dir)
+                    self.add_log(f"결과 폴더 열기: {self.output_result_dir}")
+                except Exception as e:
+                    self.add_log(f"결과 폴더 열기 실패: {e}")
         else:
             self.progress_label.setText("분석 중단됨")
             self.progress_bar.setValue(0)
@@ -608,6 +629,7 @@ class VideoAnalysisApp(QMainWindow):
         self.select_folder_btn.setEnabled(True)
         self.video_paths = []
         self.current_video_index = 0
+        self.output_result_dir = None # 폴더 경로 초기화
 
     def add_log(self, message):
         """로그 추가"""
