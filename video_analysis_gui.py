@@ -316,16 +316,16 @@ class VideoAnalysisApp(QMainWindow):
         # 정지 판단 프레임 수
         layout.addWidget(QLabel("정지 판단 프레임:"), row, 0)
         self.stop_frames_spin = QSpinBox()
-        self.stop_frames_spin.setRange(10, 300)
-        self.stop_frames_spin.setValue(30)
+        self.stop_frames_spin.setRange(1, 300)
+        self.stop_frames_spin.setValue(150)
         self.stop_frames_spin.setSuffix(" 프레임")
-        self.stop_frames_spin.setToolTip("차량이 정지차로 판단되는 프레임 수 (30fps 기준 1초)")
+        self.stop_frames_spin.setToolTip("차량이 정지차로 판단되는 프레임 수 (30fps 기준 5초)")
         layout.addWidget(self.stop_frames_spin, row, 1)
 
         row += 1
         layout.addWidget(QLabel("최소 박스 크기:"), row, 0)
         self.min_box_spin = QSpinBox()
-        self.min_box_spin.setRange(20, 200)
+        self.min_box_spin.setRange(1, 200)
         self.min_box_spin.setValue(50)
         self.min_box_spin.setSuffix(" 픽셀")
         self.min_box_spin.setToolTip("정지 판단에 사용할 최소 박스 크기")
@@ -384,23 +384,13 @@ class VideoAnalysisApp(QMainWindow):
         layout.addWidget(QLabel("역주행 판단 프레임:"), row, 0)
         self.wrong_way_frames_spin = QSpinBox()
         self.wrong_way_frames_spin.setRange(5, 60)
-        self.wrong_way_frames_spin.setValue(15)
+        self.wrong_way_frames_spin.setValue(10)
         self.wrong_way_frames_spin.setSuffix(" 프레임")
         self.wrong_way_frames_spin.setToolTip("역주행으로 최종 판단하기까지 필요한 최소 프레임 수. 높을수록 오검지가 줄어듭니다.")
         layout.addWidget(self.wrong_way_frames_spin, row, 1)
 
-        row += 1
-        layout.addWidget(QLabel("이동 평균 프레임:"), row, 0)
-        self.move_avg_window_spin = QSpinBox()
-        self.move_avg_window_spin.setRange(3, 20)
-        self.move_avg_window_spin.setValue(5)
-        self.move_avg_window_spin.setSuffix(" 프레임")
-        self.move_avg_window_spin.setToolTip("방향 계산을 부드럽게 하기 위해 사용할 프레임 수. 클수록 안정적이지만 반응이 느려집니다.")
-        layout.addWidget(self.move_avg_window_spin, row, 1)
-
         # 초기에는 비활성화
         self.wrong_way_frames_spin.setEnabled(False)
-        self.move_avg_window_spin.setEnabled(False)
         self.set_direction_btn.setEnabled(False)
 
         group.setLayout(layout)
@@ -409,7 +399,6 @@ class VideoAnalysisApp(QMainWindow):
     def toggle_wrong_way_settings(self, checked):
         """역주행 관련 설정 활성화/비활성화"""
         self.wrong_way_frames_spin.setEnabled(checked)
-        self.move_avg_window_spin.setEnabled(checked)
         self.set_direction_btn.setEnabled(checked)
         if checked:
             self.add_log("역주행 감지 기능이 활성화되었습니다. '진행 방향 설정'을 해주세요.")
@@ -527,7 +516,6 @@ class VideoAnalysisApp(QMainWindow):
             # 역주행 감지 관련 파라미터 추가
             use_wrong_way_detection=self.wrong_way_checkbox.isChecked(),
             wrong_way_frames=self.wrong_way_frames_spin.value(),
-            move_avg_window=self.move_avg_window_spin.value(),
             direction_vectors=self.direction_vectors
         )
         self.add_log("설정이 적용되었습니다.")
@@ -537,6 +525,19 @@ class VideoAnalysisApp(QMainWindow):
         if not self.video_paths:
             QMessageBox.warning(self, "경고", "영상을 먼저 선택하거나 폴더를 선택해주세요.")
             return
+
+        # 역주행 감지 설정 검증
+        if self.wrong_way_checkbox.isChecked():
+            if not self.direction_vectors:
+                QMessageBox.critical(
+                    self,
+                    "역주행 방향 미설정",
+                    "역주행 감지가 활성화되어 있지만, 진행 방향이 설정되지 않았습니다.\n\n"
+                    "진행 방향을 설정하지 않으면 역주행 감지가 동작하지 않습니다.\n\n"
+                    "'진행 방향 설정' 버튼을 클릭하여 방향을 먼저 설정해주세요."
+                )
+                self.add_log("분석이 취소되었습니다. '진행 방향 설정'을 먼저 진행해주세요.")
+                return
 
         # 설정 자동 적용
         self.apply_settings()
