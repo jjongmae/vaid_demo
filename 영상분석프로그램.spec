@@ -4,7 +4,7 @@ from PyInstaller.utils.hooks import copy_metadata
 
 datas = [('my_bot.yaml', '.'), ('rtdetr-l.pt', '.')]
 binaries = []
-hiddenimports = ['ultralytics', 'torch', 'torchvision', 'cv2', 'numpy', 'PyQt5']
+hiddenimports = ['ultralytics', 'torch', 'torch.cuda', 'torchvision', 'cv2', 'numpy', 'PyQt5']
 datas += copy_metadata('ultralytics')
 datas += copy_metadata('torch')
 tmp_ret = collect_all('ultralytics')

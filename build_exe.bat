@@ -38,7 +38,7 @@ if exist build rmdir /s /q build
 if exist dist rmdir /s /q dist
 if exist "영상분석프로그램.spec" del "영상분석프로그램.spec"
 
-echo [3/4] EXE 파일 빌드 중... (시간이 오래 걸립니다, 5-10분 소요)
+echo [3/4] EXE 파일 빌드 중... (시간이 오래 걸립니다, 10-15분 소요, GPU 버전은 용량이 큽니다)
 echo.
 pyinstaller --clean ^
     --onefile ^
@@ -48,6 +48,7 @@ pyinstaller --clean ^
     --add-data "rtdetr-l.pt;." ^
     --hidden-import=ultralytics ^
     --hidden-import=torch ^
+    --hidden-import=torch.cuda ^
     --hidden-import=torchvision ^
     --hidden-import=cv2 ^
     --hidden-import=numpy ^
@@ -75,7 +76,7 @@ echo.
 echo 참고사항:
 echo - Python 설치 불필요
 echo - 모델 파일 포함됨
-echo - CPU 모드로 동작 (모든 PC에서 실행 가능)
+echo - GPU/CPU 자동 선택 (GPU 있으면 GPU 사용, 없으면 CPU 사용)
 echo.
 
 pause

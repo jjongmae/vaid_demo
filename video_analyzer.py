@@ -8,6 +8,7 @@ import numpy as np
 from ultralytics import YOLO
 import os
 import sys
+import torch
 
 
 def get_resource_path(relative_path):
@@ -101,6 +102,12 @@ class VideoAnalyzer:
         Args:
             model_path: YOLO 모델 경로
         """
+        # GPU 사용 가능 여부 확인
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        print(f"[VideoAnalyzer] 사용 중인 디바이스: {self.device}")
+        if self.device == 'cuda':
+            print(f"[VideoAnalyzer] GPU: {torch.cuda.get_device_name(0)}")
+
         # PyInstaller 패키징 대응
         model_path = get_resource_path(model_path)
         self.model = YOLO(model_path)
@@ -225,7 +232,7 @@ class VideoAnalyzer:
             frame,
             persist=True,
             classes=self.target_classes,
-            device='cpu',
+            device=self.device,
             tracker=get_resource_path('my_bot.yaml'),
             iou=self.params['track_iou'],
             conf=self.params['detect_conf']
