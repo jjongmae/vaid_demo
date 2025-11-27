@@ -6,6 +6,7 @@ import sys
 import os
 import cv2
 import numpy as np
+import torch
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QProgressBar, QFileDialog, QGroupBox,
@@ -239,6 +240,16 @@ class VideoAnalysisApp(QMainWindow):
         self.output_result_dir = None # 분석 결과 폴더 경로
 
         self.init_ui()
+
+        # 분석 장치 정보 로깅
+        try:
+            if self.analyzer.device == 'cuda' and torch.cuda.is_available():
+                gpu_name = torch.cuda.get_device_name(0)
+                self.add_log(f"분석 장치: GPU ({gpu_name})")
+            else:
+                self.add_log("분석 장치: CPU")
+        except Exception as e:
+            self.add_log(f"분석 장치 확인 중 오류 발생: {e}")
 
     def init_ui(self):
         """UI 초기화"""
@@ -572,6 +583,12 @@ class VideoAnalysisApp(QMainWindow):
         progress_text = f"분석 준비 중 ({self.current_video_index + 1}/{total_videos}): {os.path.basename(video_path)}"
         self.progress_label.setText(progress_text)
         self.add_log(progress_text)
+
+        # Add device log before starting analysis
+        if self.analyzer.device == 'cuda':
+            self.add_log(f"영상 분석을 GPU ({torch.cuda.get_device_name(0)})로 시작합니다.")
+        else:
+            self.add_log("영상 분석을 CPU로 시작합니다.")
 
         # 분석 스레드 시작
         self.analysis_thread = AnalysisThread(self.analyzer, video_path, output_path)
