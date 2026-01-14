@@ -168,3 +168,4 @@ output.mp4
 output/
 groundingdino/
 weights/
+result/
